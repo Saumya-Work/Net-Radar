@@ -1,0 +1,9 @@
+{
+  "name": "net-radar",
+  "version": "1.0.0",
+  "description": "Net-Radar — Real-Time Hardware Wi-Fi Telemetry, LAN Device Scanner & Spectrum Analyzer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

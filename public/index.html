@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Net-Radar — Complete Wi-Fi &amp; Network Intelligence</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Top Header -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+          <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+          <line x1="12" y1="20" x2="12.01" y2="20" />
+        </svg>
+      </div>
+      <div>
+        <h1>Net-Radar</h1>
+        <p class="subtitle">Real-Time Hardware Wi-Fi Telemetry, LAN Device Scanner &amp; Spectrum Analyzer</p>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <div id="connectionPill" class="status-pill connected">
+        <span class="pulse-dot"></span>
+        <span id="pillText">Scanning Wi-Fi...</span>
+      </div>
+
+      <button id="toggleLiveBtn" class="btn btn-secondary active" title="Toggle 2-second real-time telemetry">
+        <span class="live-indicator"></span>
+        <span id="liveBtnLabel">Live: ON (2s)</span>
+      </button>
+
+      <button id="refreshAllBtn" class="btn btn-secondary" title="Refresh all data now">
+        ↻ Refresh All
+      </button>
+
+      <button id="exportJsonBtn" class="btn btn-primary" title="Export full Wi-Fi diagnostic report as JSON">
+        ⬇ Export Report
+      </button>
+    </div>
+  </header>
+
+  <!-- Navigation Filter Tabs -->
+  <nav class="section-nav">
+    <button class="nav-tab active" data-target="all">All Telemetry</button>
+    <button class="nav-tab" data-target="sec-devices">Connected Devices <span id="navDeviceCount" class="badge">0</span></button>
+    <button class="nav-tab" data-target="sec-signal">Signal &amp; Live Charts</button>
+    <button class="nav-tab" data-target="sec-nearby">Nearby Wi-Fi &amp; Channels <span id="navNearbyCount" class="badge">0</span></button>
+    <button class="nav-tab" data-target="sec-details">Full Radio, IP &amp; Hardware</button>
+    <button class="nav-tab" data-target="sec-profiles">Saved Wi-Fi &amp; Passwords</button>
+  </nav>
+
+  <main class="container">
+    <!-- Top 4 Hero Metric Cards -->
+    <section class="hero-grid" data-section="sec-signal">
+      <!-- Card 1: Signal & RSSI Gauge -->
+      <div class="card hero-card">
+        <div class="card-header">
+          <span class="card-title">Wi-Fi Signal &amp; RSSI</span>
+          <span id="signalRatingBadge" class="rating-badge good">Measuring...</span>
+        </div>
+        <div class="gauge-wrap">
+          <svg class="gauge-svg" viewBox="0 0 200 120">
+            <path class="gauge-bg" d="M 20 100 A 80 80 0 0 1 180 100" />
+            <path id="gaugeArc" class="gauge-fg" d="M 20 100 A 80 80 0 0 1 180 100" stroke-dasharray="251.2" stroke-dashoffset="251.2" />
+          </svg>
+          <div class="gauge-center">
+            <div id="heroSignalPercent" class="gauge-value">--%</div>
+            <div id="heroRssiDbm" class="gauge-sub">-- dBm</div>
+          </div>
+        </div>
+        <div class="mini-metrics">
+          <div>
+            <span class="label">SNR (Signal/Noise)</span>
+            <strong id="heroSnr">-- dB</strong>
+          </div>
+          <div>
+            <span class="label">Band &amp; Channel</span>
+            <strong id="heroBandChannel">--</strong>
+          </div>
+          <div>
+            <span class="label">Frequency</span>
+            <strong id="heroFrequency">-- MHz</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Link Speed & Live Bandwidth -->
+      <div class="card hero-card">
+        <div class="card-header">
+          <span class="card-title">Link Speed &amp; Live Traffic</span>
+          <span id="wifiGenBadge" class="tag-badge">802.11</span>
+        </div>
+        <div class="speed-split">
+          <div class="speed-box">
+            <span class="speed-dir down">↓ Receive Link</span>
+            <div class="speed-num"><span id="heroRxRate">--</span> <small>Mbps</small></div>
+            <div class="live-tput">Live: <strong id="liveRxSpeed">0.0 KB/s</strong></div>
+          </div>
+          <div class="speed-box">
+            <span class="speed-dir up">↑ Transmit Link</span>
+            <div class="speed-num"><span id="heroTxRate">--</span> <small>Mbps</small></div>
+            <div class="live-tput">Live: <strong id="liveTxSpeed">0.0 KB/s</strong></div>
+          </div>
+        </div>
+        <div class="mini-metrics">
+          <div>
+            <span class="label">Session Downloaded</span>
+            <strong id="heroBytesIn">--</strong>
+          </div>
+          <div>
+            <span class="label">Session Uploaded</span>
+            <strong id="heroBytesOut">--</strong>
+          </div>
+          <div>
+            <span class="label">Packet Errors</span>
+            <strong id="heroPktErrors">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Access Point & Local IP Identity -->
+      <div class="card hero-card">
+        <div class="card-header">
+          <span class="card-title">Access Point &amp; Gateway</span>
+          <a id="routerAdminLink" href="#" target="_blank" rel="noopener" class="router-link">Router Admin ↗</a>
+        </div>
+        <div class="identity-main">
+          <div class="ssid-big" id="heroSsid">--</div>
+          <div class="bssid-sub">AP BSSID: <code id="heroBssid">--</code> (<span id="heroApVendor">--</span>)</div>
+        </div>
+        <div class="mini-metrics">
+          <div>
+            <span class="label">Local IPv4</span>
+            <strong id="heroLocalIp">--</strong>
+          </div>
+          <div>
+            <span class="label">Gateway IP</span>
+            <strong id="heroGatewayIp">--</strong>
+          </div>
+          <div>
+            <span class="label">Security</span>
+            <strong id="heroSecurity">--</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4: Live Latency, Jitter & Public IP -->
+      <div class="card hero-card">
+        <div class="card-header">
+          <span class="card-title">Latency &amp; Public Network</span>
+          <button id="runSpeedTestBtn" class="btn btn-xs btn-accent">⚡ Run Speed Test</button>
+        </div>
+        <div class="speed-split">
+          <div class="speed-box">
+            <span class="speed-dir">Router Ping</span>
+            <div class="speed-num"><span id="liveGatewayPing">--</span> <small>ms</small></div>
+            <div class="live-tput">Jitter: <strong id="liveJitter">-- ms</strong></div>
+          </div>
+          <div class="speed-box">
+            <span class="speed-dir">Internet Ping</span>
+            <div class="speed-num"><span id="liveInternetPing">--</span> <small>ms</small></div>
+            <div class="live-tput" id="speedTestResultText">1.1.1.1 DNS</div>
+          </div>
+        </div>
+        <div class="mini-metrics">
+          <div>
+            <span class="label">Public IP</span>
+            <strong id="heroPublicIp">--</strong>
+          </div>
+          <div>
+            <span class="label">ISP / Org</span>
+            <strong id="heroIsp">--</strong>
+          </div>
+          <div>
+            <span class="label">Location</span>
+            <strong id="heroLocation">--</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Live Real-Time Telemetry Charts -->
+    <section class="charts-grid" data-section="sec-signal">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="section-title">Real-Time Signal Strength (%) &amp; RSSI (dBm) History</h2>
+            <p class="section-desc">Tracks hardware Wi-Fi signal fluctuations every 2 seconds</p>
+          </div>
+          <div class="chart-legend">
+            <span class="legend-item"><i class="dot cyan"></i> Signal (%)</span>
+            <span class="legend-item"><i class="dot purple"></i> Link RX (Mbps)</span>
+          </div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="signalChartCanvas" width="600" height="210"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="section-title">Live Latency Monitor (Wi-Fi Router vs Internet)</h2>
+            <p class="section-desc">Isolates internal Wi-Fi hop lag from external ISP latency</p>
+          </div>
+          <div class="chart-legend">
+            <span class="legend-item"><i class="dot green"></i> Gateway Ping (ms)</span>
+            <span class="legend-item"><i class="dot amber"></i> Internet 1.1.1.1 (ms)</span>
+          </div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="pingChartCanvas" width="600" height="210"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Connected Devices on Wi-Fi / LAN -->
+    <section class="card section-block" data-section="sec-devices">
+      <div class="card-header wrap-header">
+        <div>
+          <h2 class="section-title">
+            Connected Devices on Wi-Fi Subnet
+            <span id="devicesCountBadge" class="count-pill">0 devices</span>
+          </h2>
+          <p class="section-desc">
+            Active devices discovered on <code id="subnetLabel">--</code> via ARP table, ICMP ping, MAC OUI lookup &amp; service fingerprinting
+          </p>
+        </div>
+
+        <div class="toolbar-controls">
+          <input type="text" id="deviceSearchInput" class="search-input" placeholder="Filter by IP, MAC, vendor, hostname..." />
+          <button id="quickScanDevicesBtn" class="btn btn-secondary">↻ Fast ARP Scan</button>
+          <button id="deepScanDevicesBtn" class="btn btn-primary">radar Deep Scan All 254 IPs</button>
+        </div>
+      </div>
+
+      <div id="scanStatusBanner" class="scan-banner hidden">
+        <div class="spinner"></div>
+        <span id="scanStatusText">Scanning all 254 IP addresses in subnet (ping sweep + hostname + port detection)...</span>
+      </div>
+
+      <div class="table-responsive">
+        <table class="data-table" id="devicesTable">
+          <thead>
+            <tr>
+              <th>Status &amp; Role</th>
+              <th>IPv4 Address</th>
+              <th>Hostname</th>
+              <th>MAC Address</th>
+              <th>Manufacturer / Vendor</th>
+              <th>Category / Services</th>
+              <th>Ping Latency</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody">
+            <tr>
+              <td colspan="7" class="empty-cell">Scanning local network devices...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Nearby Wi-Fi Networks & Channel Congestion Analyzer -->
+    <section class="card section-block" data-section="sec-nearby">
+      <div class="card-header wrap-header">
+        <div>
+          <h2 class="section-title">
+            Nearby Wi-Fi Networks &amp; Channel Spectrum Analyzer
+            <span id="nearbyCountBadge" class="count-pill">0 radios</span>
+          </h2>
+          <p class="section-desc">
+            All visible access points &amp; BSSID mesh radios in range, channel overlap visualization, and optimal channel recommendations
+          </p>
+        </div>
+        <div class="toolbar-controls">
+          <div class="recommendation-pills">
+            <span class="rec-pill">Best 2.4 GHz Ch: <strong id="best24Ch">--</strong></span>
+            <span class="rec-pill">Best 5 GHz Ch: <strong id="best5Ch">--</strong></span>
+          </div>
+          <button id="scanNearbyBtn" class="btn btn-secondary">↻ Rescan Airwaves</button>
+        </div>
+      </div>
+
+      <div class="spectrum-grid">
+        <div class="spectrum-box">
+          <h4>2.4 GHz Band Spectrum (Channels 1 – 14)</h4>
+          <canvas id="spectrum24Canvas" width="540" height="170"></canvas>
+        </div>
+        <div class="spectrum-box">
+          <h4>5 GHz Band Spectrum (Channels 36 – 165)</h4>
+          <canvas id="spectrum5Canvas" width="540" height="170"></canvas>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SSID / Network Name</th>
+              <th>BSSID (Radio MAC)</th>
+              <th>Hardware Vendor</th>
+              <th>Signal &amp; RSSI</th>
+              <th>Band &amp; Channel</th>
+              <th>Radio / Standard</th>
+              <th>Security &amp; Cipher</th>
+              <th>Supported Rates (Mbps)</th>
+            </tr>
+          </thead>
+          <tbody id="nearbyTableBody">
+            <tr>
+              <td colspan="8" class="empty-cell">Scanning nearby Wi-Fi networks...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Complete Hardware, Radio, IP/DHCP & Adapter Details -->
+    <section class="details-grid" data-section="sec-details">
+      <!-- Column 1: Wireless Radio & 802.11 Connection Details -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="section-title">Wireless Radio &amp; 802.11 Connection</h2>
+          <span class="tag-badge">netsh wlan</span>
+        </div>
+        <div id="wifiPropsList" class="kv-list"></div>
+      </div>
+
+      <!-- Column 2: IPv4 / IPv6, DHCP Lease, Gateway & DNS -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="section-title">IP Addressing, DHCP Lease &amp; DNS</h2>
+          <span class="tag-badge">ipconfig /all</span>
+        </div>
+        <div id="ipPropsList" class="kv-list"></div>
+      </div>
+
+      <!-- Column 3: Wi-Fi Hardware Driver & Capabilities + Packet Stats -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="section-title">Wi-Fi Hardware Driver &amp; Packet Stats</h2>
+          <span class="tag-badge">Hardware &amp; Driver</span>
+        </div>
+        <div id="driverPropsList" class="kv-list"></div>
+      </div>
+    </section>
+
+    <!-- All System Network Interfaces -->
+    <section class="card section-block" data-section="sec-details">
+      <div class="card-header">
+        <div>
+          <h2 class="section-title">All Network Interfaces on This PC</h2>
+          <p class="section-desc">Physical and virtual network adapters (Wi-Fi, Ethernet, Hyper-V, WSL, Bluetooth)</p>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Adapter Name</th>
+              <th>Description / Hardware</th>
+              <th>MAC Address</th>
+              <th>Status</th>
+              <th>IPv4 Address</th>
+              <th>Subnet Mask</th>
+              <th>Gateway</th>
+            </tr>
+          </thead>
+          <tbody id="adaptersTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Saved Wi-Fi Profiles, Password Inspector & Instant Wi-Fi QR Code -->
+    <section class="profiles-grid" data-section="sec-profiles">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="section-title">Connected Wi-Fi Password &amp; Phone QR Share</h2>
+            <p class="section-desc">Scan with your phone camera or reveal your saved Wi-Fi key</p>
+          </div>
+        </div>
+        <div class="credential-box">
+          <div class="cred-details">
+            <div class="cred-row">
+              <span class="cred-label">Network SSID</span>
+              <strong id="credSsid">--</strong>
+            </div>
+            <div class="cred-row">
+              <span class="cred-label">Authentication</span>
+              <strong id="credAuth">--</strong>
+            </div>
+            <div class="cred-row">
+              <span class="cred-label">Wi-Fi Password</span>
+              <div class="password-field">
+                <code id="credPassword" data-masked="true">••••••••</code>
+                <button id="togglePwdBtn" class="btn btn-xs btn-secondary">Show</button>
+                <button id="copyPwdBtn" class="btn btn-xs btn-secondary">Copy</button>
+              </div>
+            </div>
+            <div class="cred-row">
+              <span class="cred-label">Connection Mode</span>
+              <strong id="credConnMode">--</strong>
+            </div>
+            <div class="cred-row">
+              <span class="cred-label">MAC Randomization</span>
+              <strong id="credMacRand">--</strong>
+            </div>
+          </div>
+
+          <div class="qr-box">
+            <canvas id="wifiQrCanvas" width="160" height="160"></canvas>
+            <span class="qr-caption">Scan to join Wi-Fi</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="section-title">Saved Wi-Fi Profiles on This PC</h2>
+            <p class="section-desc">Click any saved profile to inspect its configuration and saved password</p>
+          </div>
+        </div>
+        <div id="savedProfilesList" class="profiles-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Net-Radar Local Intelligence Server • Reads live Windows WLAN, ARP, ICMP &amp; Netstat telemetry locally</span>
+    <span id="lastUpdatedText">Last updated: --</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
