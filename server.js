@@ -6,6 +6,7 @@ const dns = require('dns');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
+const dgram = require('dgram');
 
 const PORT = process.env.PORT || 3000;
 
@@ -1626,10 +1627,145 @@ const server = http.createServer(async (req, res) => {
       return sendJson(200, result);
     }
 
-    // 9. Public IP Refresh (`/api/public-ip`)
+// Update saved Windows Wi-Fi profile settings (auto-connect, MAC randomization, metered cost, or password)
+async function updateWifiProfile({ name, connectionMode, macRandomization, cost, newPassword }) {
+  if (!name || /["&|<>^]/.test(name)) {
+    return { ok: false, message: 'Invalid profile name' };
+  }
+
+  const args = [`name="${name}"`];
+  if (connectionMode === 'auto' || connectionMode === 'manual') {
+    args.push(`ConnectionMode=${connectionMode}`);
+  }
+  if (macRandomization === 'yes' || macRandomization === 'no' || macRandomization === 'daily') {
+    args.push(`Randomization=${macRandomization}`);
+  }
+  if (cost === 'unrestricted' || cost === 'fixed' || cost === 'variable' || cost === 'default') {
+    args.push(`cost=${cost}`);
+  }
+  if (newPassword && !/["&|<>^]/.test(newPassword)) {
+    args.push(`keyMaterial="${newPassword}"`);
+  }
+
+  if (args.length <= 1) {
+    return { ok: false, message: 'No valid parameters provided to update' };
+  }
+
+  const res = await runCmd(`netsh wlan set profileparameter ${args.join(' ')}`);
+  return {
+    ok: res.ok,
+    message: res.stdout.trim() || res.stderr.trim() || 'Profile updated'
+  };
+}
+
+// Delete / Forget a saved Windows Wi-Fi profile
+async function deleteWifiProfile(name) {
+  if (!name || /["&|<>^]/.test(name)) {
+    return { ok: false, message: 'Invalid profile name' };
+  }
+  const res = await runCmd(`netsh wlan delete profile name="${name}"`);
+  return {
+    ok: res.ok,
+    message: res.stdout.trim() || res.stderr.trim() || `Profile "${name}" deleted`
+  };
+}
+
+// Send Wake-on-LAN (Magic Packet) to a LAN device MAC address
+function sendWakeOnLan(mac) {
+  return new Promise((resolve) => {
+    const cleanHex = normalizeMac(mac).replace(/:/g, '');
+    if (cleanHex.length !== 12 || !/^[0-9A-F]{12}$/.test(cleanHex)) {
+      return resolve({ ok: false, message: 'Invalid MAC address for Wake-on-LAN' });
+    }
+    const macBuf = Buffer.from(cleanHex, 'hex');
+    const packet = Buffer.alloc(6 + 16 * 6, 0xff);
+    for (let i = 0; i < 16; i++) {
+      macBuf.copy(packet, 6 + i * 6);
+    }
+
+    const socket = dgram.createSocket('udp4');
+    socket.once('error', (err) => {
+      socket.close();
+      resolve({ ok: false, message: err.message });
+    });
+    socket.bind(() => {
+      socket.setBroadcast(true);
+      socket.send(packet, 0, packet.length, 9, '255.255.255.255', (err) => {
+        socket.close();
+        if (err) resolve({ ok: false, message: err.message });
+        else resolve({ ok: true, message: `Wake-on-LAN magic packet sent to ${normalizeMac(mac)}` });
+      });
+    });
+  });
+}
+
+// Helper to read JSON POST body
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body || '{}'));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+// 9. Public IP Refresh (`/api/public-ip`)
     if (pathname === '/api/public-ip') {
       const info = await getPublicIpInfo(true);
       return sendJson(200, info);
+    }
+
+    // 10. Disconnect current Wi-Fi (`POST /api/wifi/disconnect`)
+    if (pathname === '/api/wifi/disconnect' && req.method === 'POST') {
+      const resCmd = await runCmd('netsh wlan disconnect');
+      return sendJson(200, {
+        ok: resCmd.ok,
+        message: resCmd.stdout.trim() || resCmd.stderr.trim() || 'Disconnected from Wi-Fi'
+      });
+    }
+
+    // 11. Flush DNS Cache (`POST /api/network/flushdns`)
+    if (pathname === '/api/network/flushdns' && req.method === 'POST') {
+      const resCmd = await runCmd('ipconfig /flushdns');
+      return sendJson(200, {
+        ok: resCmd.ok,
+        message: resCmd.stdout.trim() || resCmd.stderr.trim() || 'DNS Resolver Cache Flushed'
+      });
+    }
+
+    // 12. Renew DHCP IP Lease (`POST /api/network/renew`)
+    if (pathname === '/api/network/renew' && req.method === 'POST') {
+      const resCmd = await runCmd('ipconfig /renew "WiFi"', 15000);
+      return sendJson(200, {
+        ok: resCmd.ok,
+        message: resCmd.stdout.trim() || resCmd.stderr.trim() || 'DHCP IP lease renewed'
+      });
+    }
+
+    // 13. Update Saved Wi-Fi Profile (`POST /api/profile/update`)
+    if (pathname === '/api/profile/update' && req.method === 'POST') {
+      const payload = await readJsonBody(req);
+      const result = await updateWifiProfile(payload);
+      return sendJson(200, result);
+    }
+
+    // 14. Delete / Forget Saved Wi-Fi Profile (`POST /api/profile/delete`)
+    if (pathname === '/api/profile/delete' && req.method === 'POST') {
+      const payload = await readJsonBody(req);
+      const result = await deleteWifiProfile(payload.name);
+      return sendJson(200, result);
+    }
+
+    // 15. Wake-on-LAN Magic Packet (`POST /api/device/wol`)
+    if (pathname === '/api/device/wol' && req.method === 'POST') {
+      const payload = await readJsonBody(req);
+      const result = await sendWakeOnLan(payload.mac);
+      return sendJson(200, result);
     }
 
     // Serve Static Frontend Files from /public

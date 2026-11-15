@@ -39,11 +39,25 @@
         ↻ Refresh All
       </button>
 
+      <button id="flushDnsBtn" class="btn btn-secondary" title="Flush Windows DNS Resolver Cache">
+        🧹 Flush DNS
+      </button>
+
+      <button id="renewIpBtn" class="btn btn-secondary" title="Renew DHCP IPv4 Lease">
+        🔄 Renew IP
+      </button>
+
+      <button id="disconnectWifiBtn" class="btn btn-secondary" style="border-color:rgba(239,68,68,0.4);color:#fca5a5;" title="Disconnect from current Wi-Fi">
+        ⏏ Disconnect
+      </button>
+
       <button id="exportJsonBtn" class="btn btn-primary" title="Export full Wi-Fi diagnostic report as JSON">
         ⬇ Export Report
       </button>
     </div>
   </header>
+
+  <div id="mgmtToast" class="connect-status-msg hidden" style="margin: 10px 28px 0;"></div>
 
   <!-- Navigation Filter Tabs -->
   <nav class="section-nav">
@@ -463,6 +477,41 @@
           <div class="qr-box">
             <canvas id="wifiQrCanvas" width="160" height="160"></canvas>
             <span class="qr-caption">Scan to join Wi-Fi</span>
+          </div>
+        </div>
+
+        <!-- Profile Management Controls -->
+        <div class="profile-mgmt-box" style="margin-top:14px;padding:12px 14px;background:#0b111e;border:1px solid var(--border-color);border-radius:10px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#38bdf8;margin-bottom:10px;">🛠️ Manage Selected Profile</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+            <div>
+              <label style="display:block;font-size:0.72rem;color:#94a3b8;margin-bottom:4px;">Auto-Connect Mode</label>
+              <select id="mgmtConnMode" class="search-input" style="width:100%;min-width:0;padding:5px 8px;">
+                <option value="auto">Connect Automatically</option>
+                <option value="manual">Connect Manually</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.72rem;color:#94a3b8;margin-bottom:4px;">MAC Randomization</label>
+              <select id="mgmtMacRand" class="search-input" style="width:100%;min-width:0;padding:5px 8px;">
+                <option value="no">Disabled (Hardware MAC)</option>
+                <option value="yes">Enabled (Private MAC)</option>
+                <option value="daily">Change Daily</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.72rem;color:#94a3b8;margin-bottom:4px;">Data Cost / Metered</label>
+              <select id="mgmtCost" class="search-input" style="width:100%;min-width:0;padding:5px 8px;">
+                <option value="unrestricted">Unrestricted</option>
+                <option value="fixed">Metered (Fixed)</option>
+                <option value="variable">Metered (Variable)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+            <input type="text" id="mgmtNewPwdInput" class="search-input" style="flex:1;min-width:160px;padding:5px 10px;" placeholder="New password (optional)..." />
+            <button id="saveProfileMgmtBtn" class="btn btn-xs btn-primary">💾 Save Changes</button>
+            <button id="deleteProfileMgmtBtn" class="btn btn-xs btn-secondary" style="border-color:rgba(239,68,68,0.45);color:#fca5a5;">🗑️ Forget Profile</button>
           </div>
         </div>
       </div>

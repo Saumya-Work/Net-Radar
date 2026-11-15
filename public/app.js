@@ -448,6 +448,11 @@ function renderDevicesTable() {
           ? ` <a href="http://${escapeHtml(d.ip)}" target="_blank" rel="noopener" class="router-link">Open ↗</a>`
           : '';
 
+      const wolBtn =
+        !d.isSelf && !d.isGateway && !d.isSatellite && d.mac
+          ? ` <button class="btn btn-xs btn-secondary wol-btn" data-mac="${escapeHtml(d.mac)}" title="Send Wake-on-LAN Magic Packet">⚡ Wake</button>`
+          : '';
+
       return `
       <tr class="${d.isSelf || d.isGateway || d.isSatellite ? 'highlight-row' : ''}">
         <td>
@@ -468,10 +473,23 @@ function renderDevicesTable() {
           <div>${escapeHtml(d.deviceCategory || 'Network Client')}</div>
           ${portsHtml ? `<div style="margin-top:3px;">${portsHtml}</div>` : ''}
         </td>
-        <td>${pingText}</td>
+        <td>${pingText}${wolBtn}</td>
       </tr>`;
     })
     .join('');
+
+  tbody.querySelectorAll('.wol-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const mac = btn.getAttribute('data-mac');
+      const res = await fetch('/api/device/wol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac })
+      });
+      const data = await res.json();
+      showMgmtToast(data.message, data.ok);
+    });
+  });
 }
 
 // Render Available Wi-Fi & Mobile Data Signals + BSSID Table + Spectrum
@@ -983,6 +1001,16 @@ function renderProfilesSection(driverAndProfiles) {
   });
 }
 
+function showMgmtToast(message, ok = true) {
+  const toast = document.getElementById('mgmtToast');
+  if (!toast) return;
+  toast.textContent = `${ok ? '✓' : '⚠'} ${message}`;
+  toast.style.borderColor = ok ? 'rgba(16, 185, 129, 0.45)' : 'rgba(239, 68, 68, 0.45)';
+  toast.style.color = ok ? '#34d399' : '#fca5a5';
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), 5000);
+}
+
 function setActiveProfileDisplay(prof) {
   state.activeProfile = prof;
   state.passwordVisible = false;
@@ -990,6 +1018,22 @@ function setActiveProfileDisplay(prof) {
   document.getElementById('credAuth').textContent = `${prof.authentication || '--'} (${prof.cipher || '--'})`;
   document.getElementById('credConnMode').textContent = prof.connectionMode || '--';
   document.getElementById('credMacRand').textContent = prof.macRandomization || '--';
+
+  // Sync management dropdowns
+  const connSel = document.getElementById('mgmtConnMode');
+  const macSel = document.getElementById('mgmtMacRand');
+  const costSel = document.getElementById('mgmtCost');
+  const newPwdInput = document.getElementById('mgmtNewPwdInput');
+  if (connSel) connSel.value = String(prof.connectionMode).toLowerCase().includes('manual') ? 'manual' : 'auto';
+  if (macSel) {
+    const mr = String(prof.macRandomization).toLowerCase();
+    macSel.value = mr.includes('daily') ? 'daily' : mr.includes('enable') ? 'yes' : 'no';
+  }
+  if (costSel) {
+    const c = String(prof.cost).toLowerCase();
+    costSel.value = c.includes('fixed') ? 'fixed' : c.includes('variable') ? 'variable' : 'unrestricted';
+  }
+  if (newPwdInput) newPwdInput.value = '';
 
   const pwdEl = document.getElementById('credPassword');
   const toggleBtn = document.getElementById('togglePwdBtn');
@@ -1147,6 +1191,65 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('refreshAllBtn').addEventListener('click', () => {
     loadOverview();
     loadDevices(false);
+  });
+
+  // Quick Network Management Actions (Flush DNS, Renew IP, Disconnect)
+  document.getElementById('flushDnsBtn')?.addEventListener('click', async () => {
+    const res = await fetch('/api/network/flushdns', { method: 'POST' });
+    const data = await res.json();
+    showMgmtToast(data.message, data.ok);
+  });
+
+  document.getElementById('renewIpBtn')?.addEventListener('click', async () => {
+    showMgmtToast('Renewing DHCP IP lease...', true);
+    const res = await fetch('/api/network/renew', { method: 'POST' });
+    const data = await res.json();
+    showMgmtToast(data.message, data.ok);
+    loadOverview();
+  });
+
+  document.getElementById('disconnectWifiBtn')?.addEventListener('click', async () => {
+    if (!confirm('Disconnect from the current Wi-Fi network?')) return;
+    const res = await fetch('/api/wifi/disconnect', { method: 'POST' });
+    const data = await res.json();
+    showMgmtToast(data.message, data.ok);
+    setTimeout(loadOverview, 1000);
+  });
+
+  // Saved Profile Management (Update Settings / Forget Profile)
+  document.getElementById('saveProfileMgmtBtn')?.addEventListener('click', async () => {
+    if (!state.activeProfile) return;
+    const payload = {
+      name: state.activeProfile.name,
+      connectionMode: document.getElementById('mgmtConnMode').value,
+      macRandomization: document.getElementById('mgmtMacRand').value,
+      cost: document.getElementById('mgmtCost').value,
+      newPassword: document.getElementById('mgmtNewPwdInput').value.trim()
+    };
+    const res = await fetch('/api/profile/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    showMgmtToast(data.message, data.ok);
+    const profRes = await fetch(`/api/profile?name=${encodeURIComponent(state.activeProfile.name)}`);
+    const profData = await profRes.json();
+    if (profData?.profile) setActiveProfileDisplay(profData.profile);
+  });
+
+  document.getElementById('deleteProfileMgmtBtn')?.addEventListener('click', async () => {
+    if (!state.activeProfile) return;
+    const name = state.activeProfile.name;
+    if (!confirm(`Forget and delete saved Wi-Fi profile "${name}" from this PC?`)) return;
+    const res = await fetch('/api/profile/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    showMgmtToast(data.message, data.ok);
+    loadOverview();
   });
 
   // Rescan Satellite Mesh Button
