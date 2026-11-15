@@ -650,18 +650,38 @@ function renderNearbyNetworks(nearby) {
 
 // Connect to a selected Wi-Fi or Mobile Data Hotspot
 async function handleConnectSignal(ssid, isSaved, isOpen) {
-  if (isSaved || isOpen) {
-    await executeWifiConnect({ ssid, password: '', isOpen });
+  if (isOpen) {
+    await executeWifiConnect({ ssid, password: '', isOpen: true });
     return;
   }
 
-  // Open Password Modal
+  // Open Password & Recovery Modal
   state.pendingConnectNet = { ssid, isOpen };
   document.getElementById('modalTitle').textContent = `Connect to "${ssid}"`;
-  document.getElementById('modalDesc').textContent = `Enter the security key (password) for "${ssid}" to create a Windows WLAN profile and connect.`;
-  document.getElementById('modalPasswordInput').value = '';
+  document.getElementById('modalDesc').textContent = `Enter the security key for "${ssid}", or use one of the recovery methods below if you forgot the password.`;
+  const pwdInput = document.getElementById('modalPasswordInput');
+  const qrInput = document.getElementById('qrTextInput');
+  const vaultStatus = document.getElementById('vaultRecoveryStatus');
+  pwdInput.value = '';
+  if (qrInput) qrInput.value = '';
   document.getElementById('connectModal').classList.remove('hidden');
-  document.getElementById('modalPasswordInput').focus();
+
+  // Check if Windows WLAN Vault has a saved password for this SSID
+  vaultStatus.innerHTML = 'Checking Windows WLAN Credential Vault...';
+  try {
+    const res = await fetch(`/api/profile?name=${encodeURIComponent(ssid)}`);
+    const data = await res.json();
+    if (data && data.profile && data.profile.keyContent) {
+      pwdInput.value = data.profile.keyContent;
+      vaultStatus.innerHTML = `<span style="color:#34d399;font-weight:700;">✓ Password Recovered from Windows Vault:</span> <code>${escapeHtml(data.profile.keyContent)}</code> (auto-filled above!)`;
+    } else {
+      vaultStatus.innerHTML = `No previous password stored in Windows for <strong>${escapeHtml(ssid)}</strong>. Check a connected phone, router label, or press WPS.`;
+    }
+  } catch (_) {
+    vaultStatus.textContent = 'Could not query Windows Vault.';
+  }
+
+  pwdInput.focus();
 }
 
 async function executeWifiConnect({ ssid, password, isOpen }) {
@@ -1178,6 +1198,30 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   document.getElementById('closeModalBtn').addEventListener('click', closeModal);
   document.getElementById('cancelConnectBtn').addEventListener('click', closeModal);
+
+  // Parse pasted WIFI: QR code string (`WIFI:T:WPA;S:MyNet;P:MyPass;;`)
+  const qrInput = document.getElementById('qrTextInput');
+  if (qrInput) {
+    qrInput.addEventListener('input', () => {
+      const val = qrInput.value.trim();
+      const passMatch = val.match(/P:([^;]+);/i);
+      if (passMatch && passMatch[1]) {
+        document.getElementById('modalPasswordInput').value = passMatch[1];
+        document.getElementById('vaultRecoveryStatus').innerHTML = `<span style="color:#34d399;font-weight:700;">✓ Extracted Password from QR String:</span> <code>${escapeHtml(passMatch[1])}</code>`;
+      }
+    });
+  }
+
+  const wpsBtn = document.getElementById('wpsConnectBtn');
+  if (wpsBtn) {
+    wpsBtn.addEventListener('click', () => {
+      if (!state.pendingConnectNet) return;
+      const { ssid } = state.pendingConnectNet;
+      closeModal();
+      executeWifiConnect({ ssid, password: '', isOpen: false });
+    });
+  }
+
   document.getElementById('confirmConnectBtn').addEventListener('click', () => {
     if (!state.pendingConnectNet) return;
     const pwd = document.getElementById('modalPasswordInput').value;

@@ -481,18 +481,36 @@
 
   <!-- Connect to Wi-Fi / Hotspot Modal -->
   <div id="connectModal" class="modal-backdrop hidden">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width: 480px;">
       <div class="card-header">
         <h3 id="modalTitle">Connect to Network</h3>
         <button id="closeModalBtn" class="btn btn-xs btn-secondary">✕</button>
       </div>
       <p id="modalDesc" class="section-desc" style="margin-bottom: 12px;"></p>
+
       <div class="form-group" id="modalPasswordGroup">
         <label for="modalPasswordInput">Network / Hotspot Security Key (Password)</label>
         <input type="password" id="modalPasswordInput" class="search-input" style="width: 100%; margin-top: 6px;" placeholder="Enter Wi-Fi or Hotspot password..." />
       </div>
+
+      <!-- Forgot Password / Passwordless Helper Box -->
+      <div class="forgot-help-box" style="margin-top: 14px; padding: 12px; background: #0b111e; border: 1px solid var(--border-color); border-radius: 10px; font-size: 0.79rem;">
+        <div style="font-weight: 700; color: #38bdf8; margin-bottom: 6px;">❓ Forgot the Wi-Fi Password?</div>
+        <div id="vaultRecoveryStatus" style="color: #94a3b8; margin-bottom: 8px;">Checking Windows Saved Credential Vault...</div>
+        <div style="margin-top: 8px; border-top: 1px solid rgba(31,45,66,0.6); padding-top: 8px;">
+          <label for="qrTextInput" style="display:block; color:#cbd5e1; font-weight:600; margin-bottom:4px;">📱 Or paste Wi-Fi QR text from Phone (<code>WIFI:S:...;P:...;;</code>):</label>
+          <input type="text" id="qrTextInput" class="search-input" style="width: 100%; font-size: 0.76rem; padding: 5px 9px;" placeholder="Scan phone Wi-Fi QR & paste WIFI:T:WPA;S:...;P:password;;" />
+        </div>
+        <ul style="margin: 8px 0 0 16px; color: #94a3b8; line-height: 1.45;">
+          <li><strong>WPS Push-Button:</strong> Press the physical <strong>WPS</strong> button on the router/extender, then click <em>Connect via WPS / Saved</em> below.</li>
+          <li><strong>Phone Share:</strong> On Android (<em>Wi-Fi → Share</em>) or iPhone (<em>Wi-Fi → (i) → Password</em>), view the password or QR code.</li>
+          <li><strong>TP-Link Deco App:</strong> Open the Deco app → <em>More → Wi-Fi Settings</em> to view or reset your mesh password.</li>
+        </ul>
+      </div>
+
       <div class="modal-actions">
         <button id="cancelConnectBtn" class="btn btn-secondary">Cancel</button>
+        <button id="wpsConnectBtn" class="btn btn-accent" title="Attempt connection using saved profile or router WPS">🔘 Try WPS / Saved</button>
         <button id="confirmConnectBtn" class="btn btn-primary">⚡ Connect Now</button>
       </div>
     </div>
