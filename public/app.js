@@ -3,10 +3,13 @@ const state = {
   liveEnabled: true,
   liveTimer: null,
   maxHistory: 40,
-  signalHistory: [], // { time, signal, rssi, rxRate, txRate }
-  pingHistory: [],   // { time, gatewayMs, internetMs }
+  signalHistory: [],
+  pingHistory: [],
   devices: [],
   nearby: null,
+  mesh: null,
+  signalFilter: 'all',
+  pendingConnectNet: null,
   lastOverview: null,
   activeProfile: null,
   passwordVisible: false
@@ -53,7 +56,6 @@ function renderTelemetry(data) {
   const { wifi, network, traffic, ping, publicIp, driverAndProfiles } = data;
   if (!wifi) return;
 
-  // Connection Pill
   const pill = document.getElementById('connectionPill');
   const pillText = document.getElementById('pillText');
   if (wifi.connected) {
@@ -126,7 +128,6 @@ function renderTelemetry(data) {
     });
     if (state.pingHistory.length > state.maxHistory) state.pingHistory.shift();
 
-    // Calculate Jitter (average consecutive ping diff on gateway)
     if (state.pingHistory.length >= 2) {
       let diffs = 0;
       for (let i = 1; i < state.pingHistory.length; i++) {
@@ -144,7 +145,6 @@ function renderTelemetry(data) {
     document.getElementById('heroLocation').textContent = loc || '--';
   }
 
-  // Push Signal History
   state.signalHistory.push({
     time: new Date().toLocaleTimeString(),
     signal: wifi.signalPercent || 0,
@@ -161,13 +161,133 @@ function renderTelemetry(data) {
   document.getElementById('lastUpdatedText').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
 }
 
+// Render Satellite Mesh Topology & Node Inspector
+function renderMeshSection(mesh) {
+  if (!mesh) return;
+  state.mesh = mesh;
+
+  const nodes = mesh.nodes || [];
+  document.getElementById('navMeshCount').textContent = nodes.length;
+  document.getElementById('meshSummaryBadge').textContent = `${nodes.length} Mesh Nodes (1 Main + ${mesh.satelliteCount} Satellite${mesh.satelliteCount === 1 ? '' : 's'})`;
+  document.getElementById('meshRoamingText').textContent = mesh.roamingAdvice || 'Mesh topology active.';
+
+  const grid = document.getElementById('meshNodesGrid');
+  if (nodes.length === 0) {
+    grid.innerHTML = `<div class="empty-cell">No mesh nodes detected. Click "Hardware Scan Mesh Satellites" to rescan.</div>`;
+    return;
+  }
+
+  const renderRadioItem = (label, radio, isBackhaul = false) => {
+    if (!radio) {
+      return `
+      <div class="mesh-radio-row" style="opacity:0.55;">
+        <div><strong>${escapeHtml(label)}</strong></div>
+        <div><span style="color:#94a3b8;">Out of range or not broadcasting in current scan</span></div>
+      </div>`;
+    }
+    const col = getSignalColor(radio.signalPercent);
+    return `
+    <div class="mesh-radio-row ${isBackhaul ? 'backhaul-row' : ''}">
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        ${radio.isConnected ? '<span class="role-badge self" style="margin-left:6px;">Active Link</span>' : ''}
+        <div style="font-size:0.74rem;color:#94a3b8;margin-top:2px;">
+          BSSID: <code>${escapeHtml(radio.bssid)}</code> • ${escapeHtml(radio.band)} Ch ${radio.channel || '--'} (${radio.frequencyMHz ? `${radio.frequencyMHz} MHz` : '--'}) • ${escapeHtml(radio.wifiGeneration || radio.radioType)}
+        </div>
+      </div>
+      <div class="sig-bar-wrap">
+        <div class="sig-bar">
+          <div class="sig-bar-fill" style="width:${radio.signalPercent}%;background:${col};"></div>
+        </div>
+        <strong style="color:${col};">${radio.signalPercent}%</strong>
+        <span style="color:#94a3b8;font-size:0.75rem;">(${radio.rssiDbm} dBm)</span>
+      </div>
+    </div>`;
+  };
+
+  grid.innerHTML = nodes
+    .map((node) => {
+      const icon = node.isMainGateway ? '👑' : '🛰️';
+      const badgeClass = node.isMainGateway ? 'gateway' : 'self';
+      const portsHtml = (node.openPorts || [])
+        .map((p) => `<span class="port-pill">${escapeHtml(p)}</span>`)
+        .join(' ');
+
+      const backhaulHtml =
+        node.backhaulRadios && node.backhaulRadios.length > 0
+          ? node.backhaulRadios
+              .map((br) => renderRadioItem(`🛰️ Hidden Mesh Backhaul (${br.band})`, br, true))
+              .join('')
+          : `<div class="mesh-radio-row backhaul-row">
+              <div><strong>🛰️ Dedicated Mesh Backhaul</strong></div>
+              <div style="font-size:0.76rem;color:#c4b5fd;">Linked via TP-Link Deco TMP Mesh Port 20001 / 5 GHz Backhaul</div>
+            </div>`;
+
+      return `
+      <div class="mesh-node-card ${node.isConnectedNode ? 'active-node' : ''}">
+        <div class="mesh-node-top">
+          <div>
+            <div class="mesh-node-title">
+              <span>${icon} ${escapeHtml(node.nodeName)}</span>
+              <span class="role-badge ${badgeClass}">${escapeHtml(node.nodeRole)}</span>
+            </div>
+            <div style="font-size:0.78rem;color:#94a3b8;margin-top:3px;">
+              Vendor: <strong>${escapeHtml(node.vendor)}</strong> • Hardware Unit Base: <code>${escapeHtml(node.unitKey)}</code>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            ${
+              node.isConnectedNode
+                ? '<span class="role-badge client">● This PC Associated Here</span>'
+                : '<span class="tag-badge">Mesh Roaming Peer</span>'
+            }
+            ${
+              node.webUiUrl
+                ? `<div style="margin-top:5px;"><a href="${escapeHtml(node.webUiUrl)}" target="_blank" rel="noopener" class="router-link">Node Admin UI ↗</a></div>`
+                : ''
+            }
+          </div>
+        </div>
+
+        <div class="mesh-meta-grid">
+          <div>
+            <span>Node LAN IPv4</span>
+            <strong><code>${escapeHtml(node.ip)}</code></strong>
+          </div>
+          <div>
+            <span>LAN MAC Address</span>
+            <strong><code>${escapeHtml(node.lanMac)}</code></strong>
+          </div>
+          <div>
+            <span>Node Ping Latency</span>
+            <strong style="color:${node.pingMs !== null && node.pingMs < 15 ? '#34d399' : '#fbbf24'};">
+              ${node.pingMs !== null ? `${node.pingMs} ms (Online)` : 'Wireless Active'}
+            </strong>
+          </div>
+        </div>
+
+        <div class="mesh-radios-list">
+          ${renderRadioItem('📶 2.4 GHz Client Radio', node.client24GHz)}
+          ${renderRadioItem('🚀 5 GHz Client Radio', node.client5GHz)}
+          ${backhaulHtml}
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.76rem;color:#94a3b8;padding-top:4px;">
+          <div>Active Mesh Services: ${portsHtml || '<span class="port-pill">802.11 Mesh Radio</span>'}</div>
+          <div>Peak Signal: <strong style="color:#f8fafc;">${node.bestSignalPercent}% (${node.bestRssiDbm ?? '--'} dBm)</strong></div>
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
 // Render 3-Column Detailed KV Properties & All Adapters Table
 function renderDetailedLists(wifi, network, traffic, driverAndProfiles) {
-  // 1. Wireless Radio & 802.11
   const wifiProps = [
     ['Connection State', wifi.state],
     ['Network SSID', wifi.ssid],
     ['Access Point BSSID', wifi.bssid],
+    ['Mesh Hardware Unit Key', wifi.apUnitKey],
     ['AP Hardware Vendor', wifi.apVendor],
     ['Wi-Fi Generation', `${wifi.wifiGeneration} (${wifi.radioType})`],
     ['Frequency Band', wifi.band],
@@ -198,7 +318,6 @@ function renderDetailedLists(wifi, network, traffic, driverAndProfiles) {
     )
     .join('');
 
-  // 2. IP, DHCP & DNS
   if (network && network.wifiAdapter) {
     const wa = network.wifiAdapter;
     const g = network.globalInfo || {};
@@ -235,7 +354,6 @@ function renderDetailedLists(wifi, network, traffic, driverAndProfiles) {
       .join('');
   }
 
-  // 3. Hardware Driver & Packet Stats
   const drv = (driverAndProfiles && driverAndProfiles.driver) || state.lastOverview?.driverAndProfiles?.driver || {};
   const t = traffic || {};
   const driverProps = [
@@ -266,7 +384,6 @@ function renderDetailedLists(wifi, network, traffic, driverAndProfiles) {
     )
     .join('');
 
-  // All System Adapters Table
   if (network && Array.isArray(network.allAdapters)) {
     document.getElementById('adaptersTableBody').innerHTML = network.allAdapters
       .map((a) => {
@@ -313,7 +430,7 @@ function renderDevicesTable() {
     .map((d) => {
       let badgeClass = 'client';
       if (d.isGateway) badgeClass = 'gateway';
-      else if (d.isSelf) badgeClass = 'self';
+      else if (d.isSatellite || d.isSelf) badgeClass = 'self';
 
       const pingText =
         d.isSelf
@@ -327,15 +444,15 @@ function renderDevicesTable() {
         .join('');
 
       const webLink =
-        d.isGateway || (d.openPorts && (d.openPorts.includes('HTTP') || d.openPorts.includes('HTTPS')))
+        d.isGateway || d.isSatellite || (d.openPorts && (d.openPorts.includes('HTTP') || d.openPorts.includes('HTTPS')))
           ? ` <a href="http://${escapeHtml(d.ip)}" target="_blank" rel="noopener" class="router-link">Open ↗</a>`
           : '';
 
       return `
-      <tr class="${d.isSelf || d.isGateway ? 'highlight-row' : ''}">
+      <tr class="${d.isSelf || d.isGateway || d.isSatellite ? 'highlight-row' : ''}">
         <td>
           <span class="role-badge ${badgeClass}">
-            ● ${escapeHtml(d.role)}
+            ${d.isGateway ? '👑' : d.isSatellite ? '🛰️' : '●'} ${escapeHtml(d.role)}
           </span>
         </td>
         <td>
@@ -357,22 +474,111 @@ function renderDevicesTable() {
     .join('');
 }
 
-// Render Nearby Wi-Fi Networks & Spectrum
+// Render Available Wi-Fi & Mobile Data Signals + BSSID Table + Spectrum
 function renderNearbyNetworks(nearby) {
   if (!nearby) return;
   state.nearby = nearby;
 
+  const networks = nearby.networks || [];
   const radios = nearby.allRadios || [];
-  document.getElementById('nearbyCountBadge').textContent = `${nearby.totalNetworks} SSIDs • ${radios.length} BSSID Radios`;
-  document.getElementById('navNearbyCount').textContent = radios.length;
+
+  const connectableNets = networks.filter((n) => !n.isHidden);
+  const wifiNets = connectableNets.filter((n) => !n.isDataHotspot && n.category !== 'Range Extender');
+  const dataNets = connectableNets.filter((n) => n.isDataHotspot);
+  const extNets = connectableNets.filter((n) => n.category === 'Range Extender');
+  const savedNets = connectableNets.filter((n) => n.isSavedProfile || n.isConnectedNet);
+
+  document.getElementById('countAllSignals').textContent = connectableNets.length;
+  document.getElementById('countWifiSignals').textContent = wifiNets.length;
+  document.getElementById('countDataSignals').textContent = dataNets.length;
+  document.getElementById('countExtSignals').textContent = extNets.length;
+  document.getElementById('countSavedSignals').textContent = savedNets.length;
+
+  document.getElementById('nearbyCountBadge').textContent = `${connectableNets.length} Connectable Networks • ${radios.length} Total Radios`;
+  document.getElementById('navNearbyCount').textContent = connectableNets.length;
   document.getElementById('best24Ch').textContent = `Ch ${nearby.best24Channel || 1}`;
   document.getElementById('best5Ch').textContent = `Ch ${nearby.best5Channel || 36}`;
 
+  // Filter Connectable Signal Cards
+  let filteredNets = [...connectableNets];
+  if (state.signalFilter === 'wifi') filteredNets = wifiNets;
+  else if (state.signalFilter === 'data') filteredNets = dataNets;
+  else if (state.signalFilter === 'extender') filteredNets = extNets;
+  else if (state.signalFilter === 'saved') filteredNets = savedNets;
+
+  filteredNets.sort((a, b) => {
+    if (a.isConnectedNet !== b.isConnectedNet) return a.isConnectedNet ? -1 : 1;
+    if (a.isSavedProfile !== b.isSavedProfile) return a.isSavedProfile ? -1 : 1;
+    return b.bestSignalPercent - a.bestSignalPercent;
+  });
+
+  const cardsGrid = document.getElementById('availableSignalsGrid');
+  if (filteredNets.length === 0) {
+    cardsGrid.innerHTML = `<div class="empty-cell" style="grid-column: 1 / -1;">No signals in this filter category. Click "Scan Available Wi-Fi & Data Signals" to sweep all channels.</div>`;
+  } else {
+    cardsGrid.innerHTML = filteredNets
+      .map((n) => {
+        const col = getSignalColor(n.bestSignalPercent);
+        let typeClass = '';
+        if (n.isDataHotspot) typeClass = 'hotspot';
+        else if (n.isMesh) typeClass = 'mesh';
+        else if (n.category === 'Range Extender') typeClass = 'extender';
+
+        const bssInfo = n.bssids.find((b) => b.bssLoadStations !== null);
+        const loadText = bssInfo
+          ? ` • BSS Load: ${bssInfo.bssLoadStations} clients (${bssInfo.bssLoadUtilization})`
+          : '';
+
+        let actionBtn = '';
+        if (n.isConnectedNet) {
+          actionBtn = `<span class="role-badge client">✓ Connected</span>`;
+        } else if (n.isSavedProfile) {
+          actionBtn = `<button class="btn btn-xs btn-primary connect-net-btn" data-ssid="${escapeHtml(n.rawSsid)}" data-saved="true" data-open="${n.isOpen}">⚡ 1-Click Connect (Saved)</button>`;
+        } else {
+          actionBtn = `<button class="btn btn-xs btn-secondary connect-net-btn" data-ssid="${escapeHtml(n.rawSsid)}" data-saved="false" data-open="${n.isOpen}">🔑 Connect</button>`;
+        }
+
+        return `
+        <div class="signal-card ${n.isConnectedNet ? 'connected-card' : ''} ${n.isDataHotspot ? 'hotspot-card' : ''}">
+          <div class="signal-card-top">
+            <div>
+              <div class="signal-card-ssid">${escapeHtml(n.ssid)}</div>
+              <span class="signal-type-badge ${typeClass}">${escapeHtml(n.badge)}</span>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:1.15rem;font-weight:800;color:${col};">${n.bestSignalPercent}%</div>
+              <div style="font-size:0.74rem;color:#94a3b8;">${n.bestRssiDbm} dBm</div>
+            </div>
+          </div>
+
+          <div style="font-size:0.77rem;color:#94a3b8;">
+            <div>Bands: <strong style="color:#e2e8f0;">${escapeHtml(n.bands.join(' + ') || '2.4 GHz')}</strong> (Ch ${escapeHtml(n.channels.join(', '))}) • ${n.bssids.length} BSSID${n.bssids.length > 1 ? 's' : ''}${escapeHtml(loadText)}</div>
+            <div style="margin-top:2px;">Vendor: ${escapeHtml(n.bssids[0]?.vendor || 'Unknown')}</div>
+          </div>
+
+          <div class="signal-card-footer">
+            <span>🔒 ${escapeHtml(n.authentication)} (${escapeHtml(n.encryption)})</span>
+            ${actionBtn}
+          </div>
+        </div>`;
+      })
+      .join('');
+
+    cardsGrid.querySelectorAll('.connect-net-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ssid = btn.getAttribute('data-ssid');
+        const isSaved = btn.getAttribute('data-saved') === 'true';
+        const isOpen = btn.getAttribute('data-open') === 'true';
+        handleConnectSignal(ssid, isSaved, isOpen);
+      });
+    });
+  }
+
+  // Render BSSID Table
   const tbody = document.getElementById('nearbyTableBody');
   if (radios.length === 0) {
     tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">No nearby networks detected.</td></tr>`;
   } else {
-    // Sort by connected first, then signal % descending
     const sorted = [...radios].sort((a, b) => {
       if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
       return b.signalPercent - a.signalPercent;
@@ -381,12 +587,25 @@ function renderNearbyNetworks(nearby) {
     tbody.innerHTML = sorted
       .map((r) => {
         const col = getSignalColor(r.signalPercent);
+        const loadHtml =
+          r.bssLoadStations !== null
+            ? `<div style="font-size:0.72rem;color:#fbbf24;margin-top:2px;">Stations: ${r.bssLoadStations} • Load: ${escapeHtml(r.bssLoadUtilization)}</div>`
+            : '';
+
+        const rowConnectBtn =
+          r.isConnected
+            ? '<span class="role-badge client">Active Radio</span>'
+            : !r.isHidden
+            ? `<button class="btn btn-xs btn-secondary row-connect-btn" data-ssid="${escapeHtml(r.rawSsid)}" data-saved="${r.isSavedProfile}" data-open="${r.isOpen}">Connect</button>`
+            : '<span style="font-size:0.74rem;color:#94a3b8;">Mesh Backhaul</span>';
+
         return `
         <tr class="${r.isConnected ? 'highlight-row' : ''}">
           <td>
             <strong>${escapeHtml(r.ssid)}</strong>
             ${r.isConnected ? '<span class="role-badge self" style="margin-left:6px;">Connected AP</span>' : ''}
           </td>
+          <td><span class="signal-type-badge ${r.isDataHotspot ? 'hotspot' : r.isMesh ? 'mesh' : ''}">${escapeHtml(r.badge)}</span></td>
           <td><code>${escapeHtml(r.bssid)}</code></td>
           <td>${escapeHtml(r.vendor)}</td>
           <td>
@@ -402,18 +621,66 @@ function renderNearbyNetworks(nearby) {
             <strong>${escapeHtml(r.band)}</strong> • Ch ${r.channel || '--'}
             <div style="font-size:0.74rem;color:#94a3b8;">${r.frequencyMHz ? `${r.frequencyMHz} MHz` : ''}</div>
           </td>
-          <td><span class="tag-badge">${escapeHtml(r.wifiGeneration)} (${escapeHtml(r.radioType)})</span></td>
-          <td>${escapeHtml(r.authentication)} / ${escapeHtml(r.encryption)}</td>
-          <td style="font-size:0.76rem;color:#94a3b8;max-width:190px;">
-            <div>Basic: ${escapeHtml(r.basicRates || '--')}</div>
-            <div>Other: ${escapeHtml(r.otherRates || '--')}</div>
+          <td>
+            <span class="tag-badge">${escapeHtml(r.wifiGeneration)} (${escapeHtml(r.radioType)})</span>
+            ${loadHtml}
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <span style="font-size:0.76rem;">${escapeHtml(r.authentication)}</span>
+              ${rowConnectBtn}
+            </div>
           </td>
         </tr>`;
       })
       .join('');
+
+    tbody.querySelectorAll('.row-connect-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ssid = btn.getAttribute('data-ssid');
+        const isSaved = btn.getAttribute('data-saved') === 'true';
+        const isOpen = btn.getAttribute('data-open') === 'true';
+        handleConnectSignal(ssid, isSaved, isOpen);
+      });
+    });
   }
 
   drawSpectrumCanvases(radios);
+}
+
+// Connect to a selected Wi-Fi or Mobile Data Hotspot
+async function handleConnectSignal(ssid, isSaved, isOpen) {
+  if (isSaved || isOpen) {
+    await executeWifiConnect({ ssid, password: '', isOpen });
+    return;
+  }
+
+  // Open Password Modal
+  state.pendingConnectNet = { ssid, isOpen };
+  document.getElementById('modalTitle').textContent = `Connect to "${ssid}"`;
+  document.getElementById('modalDesc').textContent = `Enter the security key (password) for "${ssid}" to create a Windows WLAN profile and connect.`;
+  document.getElementById('modalPasswordInput').value = '';
+  document.getElementById('connectModal').classList.remove('hidden');
+  document.getElementById('modalPasswordInput').focus();
+}
+
+async function executeWifiConnect({ ssid, password, isOpen }) {
+  const msgEl = document.getElementById('connectStatusMsg');
+  msgEl.classList.remove('hidden');
+  msgEl.textContent = `Connecting to "${ssid}"...`;
+
+  try {
+    const res = await fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid, password, isOpen })
+    });
+    const data = await res.json();
+    msgEl.textContent = `${data.ok ? '✓' : '⚠'} ${data.message}`;
+    setTimeout(() => loadOverview(), 2500);
+  } catch (err) {
+    msgEl.textContent = `Connection error: ${err.message}`;
+  }
 }
 
 // High-DPI Canvas Setup Helper
@@ -429,7 +696,6 @@ function setupCanvas(canvas) {
   return { ctx, w, h };
 }
 
-// Draw Live Signal & RX Rate Chart
 function drawSignalChart() {
   const canvas = document.getElementById('signalChartCanvas');
   if (!canvas) return;
@@ -440,7 +706,6 @@ function drawSignalChart() {
   const cw = w - pad.left - pad.right;
   const ch = h - pad.top - pad.bottom;
 
-  // Grid lines
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
   ctx.lineWidth = 1;
   ctx.fillStyle = '#64748b';
@@ -461,7 +726,6 @@ function drawSignalChart() {
 
   const stepX = cw / Math.max(1, state.maxHistory - 1);
 
-  // Draw Signal % line & gradient fill
   ctx.beginPath();
   pts.forEach((p, idx) => {
     const x = pad.left + idx * stepX;
@@ -473,7 +737,6 @@ function drawSignalChart() {
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Gradient under Signal line
   const lastX = pad.left + (pts.length - 1) * stepX;
   ctx.lineTo(lastX, pad.top + ch);
   ctx.lineTo(pad.left, pad.top + ch);
@@ -484,7 +747,6 @@ function drawSignalChart() {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Draw RX Rate scaled (max 400 Mbps or max observed)
   const maxRx = Math.max(300, ...pts.map((p) => p.rxRate || 0));
   ctx.beginPath();
   pts.forEach((p, idx) => {
@@ -500,7 +762,6 @@ function drawSignalChart() {
   ctx.setLineDash([]);
 }
 
-// Draw Live Ping Latency Chart
 function drawPingChart() {
   const canvas = document.getElementById('pingChartCanvas');
   if (!canvas) return;
@@ -532,7 +793,6 @@ function drawPingChart() {
   if (pts.length === 0) return;
   const stepX = cw / Math.max(1, state.maxHistory - 1);
 
-  // Gateway Ping (Green)
   ctx.beginPath();
   pts.forEach((p, idx) => {
     const x = pad.left + idx * stepX;
@@ -544,7 +804,6 @@ function drawPingChart() {
   ctx.lineWidth = 2.4;
   ctx.stroke();
 
-  // Internet Ping (Amber)
   ctx.beginPath();
   pts.forEach((p, idx) => {
     const x = pad.left + idx * stepX;
@@ -557,11 +816,9 @@ function drawPingChart() {
   ctx.stroke();
 }
 
-// Draw 2.4 GHz & 5 GHz Channel Spectrum Bell Curves
 function drawSpectrumCanvases(radios) {
   const palette = ['#06b6d4', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#3b82f6'];
 
-  // 1. 2.4 GHz Spectrum (Channels 1 to 14)
   const c24 = document.getElementById('spectrum24Canvas');
   if (c24) {
     const { ctx, w, h } = setupCanvas(c24);
@@ -586,7 +843,7 @@ function drawSpectrumCanvases(radios) {
     const r24 = radios.filter((r) => r.channel && r.channel <= 14);
     r24.forEach((r, i) => {
       const centerX = pad.left + ((r.channel - 1) / 13) * cw;
-      const spread = (2.2 / 13) * cw; // 20MHz spans ~4 channels
+      const spread = (2.2 / 13) * cw;
       const peakH = (r.signalPercent / 100) * (ch - 10);
       const peakY = pad.top + ch - peakH;
       const color = r.isConnected ? '#22d3ee' : palette[i % palette.length];
@@ -607,7 +864,6 @@ function drawSpectrumCanvases(radios) {
     });
   }
 
-  // 2. 5 GHz Spectrum (Channels 36 to 165)
   const c5 = document.getElementById('spectrum5Canvas');
   if (c5) {
     const { ctx, w, h } = setupCanvas(c5);
@@ -670,20 +926,31 @@ function renderProfilesSection(driverAndProfiles) {
 
   const listEl = document.getElementById('savedProfilesList');
   listEl.innerHTML = profiles
-    .map(
-      (name) => `
+    .map((name) => {
+      const isDataHotspot = /4g|5g|iphone|galaxy|hotspot/i.test(name);
+      return `
       <div class="profile-item ${state.activeProfile && state.activeProfile.name === name ? 'active' : ''}" data-profile="${escapeHtml(name)}">
         <div>
-          <strong>📶 ${escapeHtml(name)}</strong>
-          <div style="font-size:0.75rem;color:#94a3b8;">Saved Windows WLAN Profile</div>
+          <strong>${isDataHotspot ? '📱' : '📶'} ${escapeHtml(name)}</strong>
+          <div style="font-size:0.75rem;color:#94a3b8;">
+            ${isDataHotspot ? 'Saved Mobile Data / 4G-5G Hotspot Profile' : 'Saved Windows WLAN Profile'}
+          </div>
         </div>
-        <button class="btn btn-xs btn-secondary">Inspect Key →</button>
-      </div>`
-    )
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-xs btn-secondary inspect-prof-btn">Inspect Key</button>
+          <button class="btn btn-xs btn-primary connect-prof-btn" data-ssid="${escapeHtml(name)}">Connect</button>
+        </div>
+      </div>`;
+    })
     .join('');
 
   listEl.querySelectorAll('.profile-item').forEach((el) => {
-    el.addEventListener('click', async () => {
+    el.addEventListener('click', async (ev) => {
+      if (ev.target.classList.contains('connect-prof-btn')) {
+        const ssid = ev.target.getAttribute('data-ssid');
+        executeWifiConnect({ ssid, password: '', isOpen: false });
+        return;
+      }
       const profName = el.getAttribute('data-profile');
       const res = await fetch(`/api/profile?name=${encodeURIComponent(profName)}`);
       const data = await res.json();
@@ -718,7 +985,6 @@ function setActiveProfileDisplay(prof) {
   drawWifiQrCanvas(prof.ssid || prof.name, prof.keyContent || '', prof.authentication || 'WPA');
 }
 
-// Render Wi-Fi QR Code onto Canvas (Deterministic Matrix + Visual Scannable Image with fallback)
 function drawWifiQrCanvas(ssid, password, auth = 'WPA') {
   const canvas = document.getElementById('wifiQrCanvas');
   if (!canvas) return;
@@ -730,7 +996,6 @@ function drawWifiQrCanvas(ssid, password, auth = 'WPA') {
   const authType = String(auth).toLowerCase().includes('open') ? 'nopass' : 'WPA';
   const qrPayload = `WIFI:T:${authType};S:${ssid};P:${password};;`;
 
-  // Try loading crisp QR via Image if online, and simultaneously draw immediate deterministic matrix pattern
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
@@ -740,7 +1005,6 @@ function drawWifiQrCanvas(ssid, password, auth = 'WPA') {
   };
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=4&data=${encodeURIComponent(qrPayload)}`;
 
-  // Immediate local fallback matrix drawing so canvas is never blank even offline
   const cells = 21;
   const cellSize = Math.floor((size - 16) / cells);
   const offset = Math.floor((size - cells * cellSize) / 2);
@@ -783,6 +1047,7 @@ async function loadOverview() {
     const data = await res.json();
     state.lastOverview = data;
     renderTelemetry(data);
+    renderMeshSection(data.mesh);
     renderNearbyNetworks(data.nearby);
     renderProfilesSection(data.driverAndProfiles);
 
@@ -845,11 +1110,9 @@ async function loadDevices(deep = false) {
 
 // Wire up interactive controls
 document.addEventListener('DOMContentLoaded', () => {
-  // Initial load
   loadOverview();
   loadDevices(false);
 
-  // Start 2s Live Polling
   state.liveTimer = setInterval(pollLive, 2000);
 
   // Toggle Live Button
@@ -866,11 +1129,69 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDevices(false);
   });
 
+  // Rescan Satellite Mesh Button
+  document.getElementById('rescanMeshBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('rescanMeshBtn');
+    btn.disabled = true;
+    btn.textContent = '🛰️ Scanning Mesh Satellites...';
+    try {
+      const res = await fetch('/api/mesh');
+      const data = await res.json();
+      if (data.mesh) renderMeshSection(data.mesh);
+      if (data.nearby) renderNearbyNetworks(data.nearby);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🛰️ Hardware Scan Mesh Satellites';
+    }
+  });
+
+  // Rescan Available Wi-Fi & Data Signals
+  document.getElementById('scanNearbyBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('scanNearbyBtn');
+    btn.disabled = true;
+    btn.textContent = '📡 Hardware Sweeping Airwaves...';
+    try {
+      const res = await fetch('/api/nearby');
+      const data = await res.json();
+      renderNearbyNetworks(data);
+      if (data.mesh) renderMeshSection(data.mesh);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📡 Scan Available Wi-Fi & Data Signals';
+    }
+  });
+
+  // Signal Type Filter Pills
+  document.querySelectorAll('#signalTypeFilters .filter-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('#signalTypeFilters .filter-pill').forEach((p) => p.classList.remove('active'));
+      pill.classList.add('active');
+      state.signalFilter = pill.getAttribute('data-filter');
+      if (state.nearby) renderNearbyNetworks(state.nearby);
+    });
+  });
+
+  // Connect Modal Controls
+  const closeModal = () => {
+    document.getElementById('connectModal').classList.add('hidden');
+    state.pendingConnectNet = null;
+  };
+  document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+  document.getElementById('cancelConnectBtn').addEventListener('click', closeModal);
+  document.getElementById('confirmConnectBtn').addEventListener('click', () => {
+    if (!state.pendingConnectNet) return;
+    const pwd = document.getElementById('modalPasswordInput').value;
+    const { ssid, isOpen } = state.pendingConnectNet;
+    closeModal();
+    executeWifiConnect({ ssid, password: pwd, isOpen });
+  });
+
   // Export JSON Report
   document.getElementById('exportJsonBtn').addEventListener('click', () => {
     const payload = {
       exportedAt: new Date().toISOString(),
       overview: state.lastOverview,
+      mesh: state.mesh,
       connectedDevices: state.devices,
       signalHistory: state.signalHistory,
       pingHistory: state.pingHistory
@@ -879,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `wifi-report-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    a.download = `net-radar-report-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
   });
@@ -888,21 +1209,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('deviceSearchInput').addEventListener('input', renderDevicesTable);
   document.getElementById('quickScanDevicesBtn').addEventListener('click', () => loadDevices(false));
   document.getElementById('deepScanDevicesBtn').addEventListener('click', () => loadDevices(true));
-
-  // Rescan Nearby Networks
-  document.getElementById('scanNearbyBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('scanNearbyBtn');
-    btn.disabled = true;
-    btn.textContent = 'Scanning...';
-    try {
-      const res = await fetch('/api/nearby');
-      const data = await res.json();
-      renderNearbyNetworks(data);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '↻ Rescan Airwaves';
-    }
-  });
 
   // Speed Test Button
   document.getElementById('runSpeedTestBtn').addEventListener('click', async () => {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Net-Radar — Complete Wi-Fi &amp; Network Intelligence</title>
+  <title>Net-Radar — Complete Wi-Fi, Satellite Mesh &amp; Network Intelligence</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -20,7 +20,7 @@
       </div>
       <div>
         <h1>Net-Radar</h1>
-        <p class="subtitle">Real-Time Hardware Wi-Fi Telemetry, LAN Device Scanner &amp; Spectrum Analyzer</p>
+        <p class="subtitle">Real-Time Hardware Wi-Fi Telemetry, Satellite Mesh Inspector, LAN Scanner &amp; Signal Finder</p>
       </div>
     </div>
 
@@ -48,11 +48,12 @@
   <!-- Navigation Filter Tabs -->
   <nav class="section-nav">
     <button class="nav-tab active" data-target="all">All Telemetry</button>
-    <button class="nav-tab" data-target="sec-devices">Connected Devices <span id="navDeviceCount" class="badge">0</span></button>
-    <button class="nav-tab" data-target="sec-signal">Signal &amp; Live Charts</button>
-    <button class="nav-tab" data-target="sec-nearby">Nearby Wi-Fi &amp; Channels <span id="navNearbyCount" class="badge">0</span></button>
-    <button class="nav-tab" data-target="sec-details">Full Radio, IP &amp; Hardware</button>
-    <button class="nav-tab" data-target="sec-profiles">Saved Wi-Fi &amp; Passwords</button>
+    <button class="nav-tab" data-target="sec-mesh">🛰️ Satellite Mesh <span id="navMeshCount" class="badge">0</span></button>
+    <button class="nav-tab" data-target="sec-nearby">📡 Available Wi-Fi &amp; Data Signals <span id="navNearbyCount" class="badge">0</span></button>
+    <button class="nav-tab" data-target="sec-devices">💻 Connected Devices <span id="navDeviceCount" class="badge">0</span></button>
+    <button class="nav-tab" data-target="sec-signal">📈 Signal &amp; Live Charts</button>
+    <button class="nav-tab" data-target="sec-details">⚙️ Full Radio, IP &amp; Hardware</button>
+    <button class="nav-tab" data-target="sec-profiles">🔑 Saved Wi-Fi &amp; QR</button>
   </nav>
 
   <main class="container">
@@ -185,6 +186,152 @@
       </div>
     </section>
 
+    <!-- NEW: Satellite Mesh Topology & Node Inspector -->
+    <section class="card section-block" data-section="sec-mesh">
+      <div class="card-header wrap-header">
+        <div>
+          <h2 class="section-title">
+            🛰️ Satellite Mesh Topology &amp; Node Inspector
+            <span id="meshSummaryBadge" class="count-pill">Detecting Mesh...</span>
+          </h2>
+          <p class="section-desc">
+            Detects Main Mesh Router &amp; all Satellite Mesh Nodes via hardware BSSID grouping, hidden backhaul links (<code id="meshBackhaulPrefix">66:32:B1:*</code>), ARP &amp; Mesh TMP Port 20001
+          </p>
+        </div>
+        <div class="toolbar-controls">
+          <button id="rescanMeshBtn" class="btn btn-primary">🛰️ Hardware Scan Mesh Satellites</button>
+        </div>
+      </div>
+
+      <div id="meshRoamingBanner" class="mesh-advice-banner">
+        <strong>Mesh Intelligence:</strong> <span id="meshRoamingText">Analyzing mesh nodes and backhaul links...</span>
+      </div>
+
+      <div id="meshNodesGrid" class="mesh-nodes-grid">
+        <div class="empty-cell">Scanning mesh satellites and backhaul radios...</div>
+      </div>
+    </section>
+
+    <!-- Available Wi-Fi & Mobile Data / Hotspot Signals to Connect -->
+    <section class="card section-block" data-section="sec-nearby">
+      <div class="card-header wrap-header">
+        <div>
+          <h2 class="section-title">
+            📡 Available Wi-Fi &amp; Mobile Data Signals to Connect
+            <span id="nearbyCountBadge" class="count-pill">0 signals</span>
+          </h2>
+          <p class="section-desc">
+            Hardware-scanned Broadband Wi-Fi, 4G/5G Mobile Data Hotspots, Mesh Systems &amp; Range Extenders in range — with 1-click connection
+          </p>
+        </div>
+        <div class="toolbar-controls">
+          <div class="recommendation-pills">
+            <span class="rec-pill">Best 2.4 GHz Ch: <strong id="best24Ch">--</strong></span>
+            <span class="rec-pill">Best 5 GHz Ch: <strong id="best5Ch">--</strong></span>
+          </div>
+          <button id="scanNearbyBtn" class="btn btn-primary">📡 Scan Available Wi-Fi &amp; Data Signals</button>
+        </div>
+      </div>
+
+      <!-- Signal Type Filter Bar -->
+      <div class="signal-filter-bar">
+        <div class="filter-pills" id="signalTypeFilters">
+          <button class="filter-pill active" data-filter="all">All Signals (<span id="countAllSignals">0</span>)</button>
+          <button class="filter-pill" data-filter="wifi">📶 Broadband &amp; Mesh Wi-Fi (<span id="countWifiSignals">0</span>)</button>
+          <button class="filter-pill" data-filter="data">📱 Mobile Data &amp; Hotspots (<span id="countDataSignals">0</span>)</button>
+          <button class="filter-pill" data-filter="extender">📡 Range Extenders (<span id="countExtSignals">0</span>)</button>
+          <button class="filter-pill" data-filter="saved">🔑 Saved / Ready (<span id="countSavedSignals">0</span>)</button>
+        </div>
+        <div id="connectStatusMsg" class="connect-status-msg hidden"></div>
+      </div>
+
+      <!-- Available Connectable Networks Grid -->
+      <div id="availableSignalsGrid" class="signals-cards-grid"></div>
+
+      <!-- 2.4 GHz & 5 GHz Channel Spectrum Overlap Visualizer -->
+      <div class="spectrum-grid" style="margin-top: 18px;">
+        <div class="spectrum-box">
+          <h4>2.4 GHz Band Spectrum &amp; Overlap (Channels 1 – 14)</h4>
+          <canvas id="spectrum24Canvas" width="540" height="170"></canvas>
+        </div>
+        <div class="spectrum-box">
+          <h4>5 GHz Band Spectrum &amp; Overlap (Channels 36 – 165)</h4>
+          <canvas id="spectrum5Canvas" width="540" height="170"></canvas>
+        </div>
+      </div>
+
+      <!-- Detailed BSSID Radio Breakdown Table -->
+      <h3 class="sub-heading">All Detected BSSID Radios (Mesh Nodes, Dual-Band &amp; Hidden Backhauls)</h3>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SSID / Network Name</th>
+              <th>Signal Type</th>
+              <th>BSSID (Radio MAC)</th>
+              <th>Hardware Vendor</th>
+              <th>Signal &amp; RSSI</th>
+              <th>Band &amp; Channel</th>
+              <th>Standard &amp; BSS Load</th>
+              <th>Security &amp; Action</th>
+            </tr>
+          </thead>
+          <tbody id="nearbyTableBody">
+            <tr>
+              <td colspan="8" class="empty-cell">Scanning nearby Wi-Fi and data signals...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Connected Devices on Wi-Fi / LAN -->
+    <section class="card section-block" data-section="sec-devices">
+      <div class="card-header wrap-header">
+        <div>
+          <h2 class="section-title">
+            💻 Connected Devices on Wi-Fi &amp; Mesh Subnet
+            <span id="devicesCountBadge" class="count-pill">0 devices</span>
+          </h2>
+          <p class="section-desc">
+            Active devices discovered on <code id="subnetLabel">--</code> (including Main Router, Mesh Satellites, PCs, TVs &amp; Smartphones)
+          </p>
+        </div>
+
+        <div class="toolbar-controls">
+          <input type="text" id="deviceSearchInput" class="search-input" placeholder="Filter by IP, MAC, vendor, hostname..." />
+          <button id="quickScanDevicesBtn" class="btn btn-secondary">↻ Fast ARP Scan</button>
+          <button id="deepScanDevicesBtn" class="btn btn-primary">🔍 Deep Scan All 254 IPs</button>
+        </div>
+      </div>
+
+      <div id="scanStatusBanner" class="scan-banner hidden">
+        <div class="spinner"></div>
+        <span id="scanStatusText">Scanning all 254 IP addresses in subnet (ping sweep + hostname + port detection)...</span>
+      </div>
+
+      <div class="table-responsive">
+        <table class="data-table" id="devicesTable">
+          <thead>
+            <tr>
+              <th>Status &amp; Role</th>
+              <th>IPv4 Address</th>
+              <th>Hostname</th>
+              <th>MAC Address</th>
+              <th>Manufacturer / Vendor</th>
+              <th>Category / Services</th>
+              <th>Ping Latency</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody">
+            <tr>
+              <td colspan="7" class="empty-cell">Scanning local network devices...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Live Real-Time Telemetry Charts -->
     <section class="charts-grid" data-section="sec-signal">
       <div class="card">
@@ -217,108 +364,6 @@
         <div class="canvas-wrap">
           <canvas id="pingChartCanvas" width="600" height="210"></canvas>
         </div>
-      </div>
-    </section>
-
-    <!-- Connected Devices on Wi-Fi / LAN -->
-    <section class="card section-block" data-section="sec-devices">
-      <div class="card-header wrap-header">
-        <div>
-          <h2 class="section-title">
-            Connected Devices on Wi-Fi Subnet
-            <span id="devicesCountBadge" class="count-pill">0 devices</span>
-          </h2>
-          <p class="section-desc">
-            Active devices discovered on <code id="subnetLabel">--</code> via ARP table, ICMP ping, MAC OUI lookup &amp; service fingerprinting
-          </p>
-        </div>
-
-        <div class="toolbar-controls">
-          <input type="text" id="deviceSearchInput" class="search-input" placeholder="Filter by IP, MAC, vendor, hostname..." />
-          <button id="quickScanDevicesBtn" class="btn btn-secondary">↻ Fast ARP Scan</button>
-          <button id="deepScanDevicesBtn" class="btn btn-primary">radar Deep Scan All 254 IPs</button>
-        </div>
-      </div>
-
-      <div id="scanStatusBanner" class="scan-banner hidden">
-        <div class="spinner"></div>
-        <span id="scanStatusText">Scanning all 254 IP addresses in subnet (ping sweep + hostname + port detection)...</span>
-      </div>
-
-      <div class="table-responsive">
-        <table class="data-table" id="devicesTable">
-          <thead>
-            <tr>
-              <th>Status &amp; Role</th>
-              <th>IPv4 Address</th>
-              <th>Hostname</th>
-              <th>MAC Address</th>
-              <th>Manufacturer / Vendor</th>
-              <th>Category / Services</th>
-              <th>Ping Latency</th>
-            </tr>
-          </thead>
-          <tbody id="devicesTableBody">
-            <tr>
-              <td colspan="7" class="empty-cell">Scanning local network devices...</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Nearby Wi-Fi Networks & Channel Congestion Analyzer -->
-    <section class="card section-block" data-section="sec-nearby">
-      <div class="card-header wrap-header">
-        <div>
-          <h2 class="section-title">
-            Nearby Wi-Fi Networks &amp; Channel Spectrum Analyzer
-            <span id="nearbyCountBadge" class="count-pill">0 radios</span>
-          </h2>
-          <p class="section-desc">
-            All visible access points &amp; BSSID mesh radios in range, channel overlap visualization, and optimal channel recommendations
-          </p>
-        </div>
-        <div class="toolbar-controls">
-          <div class="recommendation-pills">
-            <span class="rec-pill">Best 2.4 GHz Ch: <strong id="best24Ch">--</strong></span>
-            <span class="rec-pill">Best 5 GHz Ch: <strong id="best5Ch">--</strong></span>
-          </div>
-          <button id="scanNearbyBtn" class="btn btn-secondary">↻ Rescan Airwaves</button>
-        </div>
-      </div>
-
-      <div class="spectrum-grid">
-        <div class="spectrum-box">
-          <h4>2.4 GHz Band Spectrum (Channels 1 – 14)</h4>
-          <canvas id="spectrum24Canvas" width="540" height="170"></canvas>
-        </div>
-        <div class="spectrum-box">
-          <h4>5 GHz Band Spectrum (Channels 36 – 165)</h4>
-          <canvas id="spectrum5Canvas" width="540" height="170"></canvas>
-        </div>
-      </div>
-
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>SSID / Network Name</th>
-              <th>BSSID (Radio MAC)</th>
-              <th>Hardware Vendor</th>
-              <th>Signal &amp; RSSI</th>
-              <th>Band &amp; Channel</th>
-              <th>Radio / Standard</th>
-              <th>Security &amp; Cipher</th>
-              <th>Supported Rates (Mbps)</th>
-            </tr>
-          </thead>
-          <tbody id="nearbyTableBody">
-            <tr>
-              <td colspan="8" class="empty-cell">Scanning nearby Wi-Fi networks...</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </section>
 
@@ -356,8 +401,8 @@
     <section class="card section-block" data-section="sec-details">
       <div class="card-header">
         <div>
-          <h2 class="section-title">All Network Interfaces on This PC</h2>
-          <p class="section-desc">Physical and virtual network adapters (Wi-Fi, Ethernet, Hyper-V, WSL, Bluetooth)</p>
+          <h2 class="section-title">All Network &amp; Data Interfaces on This PC</h2>
+          <p class="section-desc">Physical and virtual network adapters (Wi-Fi, Ethernet, Cellular/Hotspot, Hyper-V, WSL, Bluetooth PAN)</p>
         </div>
       </div>
       <div class="table-responsive">
@@ -425,8 +470,8 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <h2 class="section-title">Saved Wi-Fi Profiles on This PC</h2>
-            <p class="section-desc">Click any saved profile to inspect its configuration and saved password</p>
+            <h2 class="section-title">Saved Wi-Fi &amp; 4G/5G Hotspot Profiles on This PC</h2>
+            <p class="section-desc">Click any saved profile to inspect its password or connect directly</p>
           </div>
         </div>
         <div id="savedProfilesList" class="profiles-list"></div>
@@ -434,8 +479,27 @@
     </section>
   </main>
 
+  <!-- Connect to Wi-Fi / Hotspot Modal -->
+  <div id="connectModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="card-header">
+        <h3 id="modalTitle">Connect to Network</h3>
+        <button id="closeModalBtn" class="btn btn-xs btn-secondary">✕</button>
+      </div>
+      <p id="modalDesc" class="section-desc" style="margin-bottom: 12px;"></p>
+      <div class="form-group" id="modalPasswordGroup">
+        <label for="modalPasswordInput">Network / Hotspot Security Key (Password)</label>
+        <input type="password" id="modalPasswordInput" class="search-input" style="width: 100%; margin-top: 6px;" placeholder="Enter Wi-Fi or Hotspot password..." />
+      </div>
+      <div class="modal-actions">
+        <button id="cancelConnectBtn" class="btn btn-secondary">Cancel</button>
+        <button id="confirmConnectBtn" class="btn btn-primary">⚡ Connect Now</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="footer">
-    <span>Net-Radar Local Intelligence Server • Reads live Windows WLAN, ARP, ICMP &amp; Netstat telemetry locally</span>
+    <span>Net-Radar Local Intelligence Server • Reads live Windows WLAN, Satellite Mesh, ARP, ICMP &amp; Netstat telemetry locally</span>
     <span id="lastUpdatedText">Last updated: --</span>
   </footer>
 
